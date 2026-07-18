@@ -18,7 +18,7 @@ import Fighter2 from "./Fighter2/Fighter2.js";
 import Hitbox1  from "./Hitbox1/Hitbox1.js";
 import Hitbox2  from "./Hitbox2/Hitbox2.js";
 
-import { login, getSession, logout } from "./src/auth.js";
+import { login, getSession, logout, signUp, confirmSignUp } from "./src/auth.js";
 import { findMatch }                  from "./src/matchmaking.js";
 import { connect, sendInputs, disconnect, isConnected } from "./src/netcode.js";
 
@@ -79,8 +79,18 @@ function finishRound(winner, reason) {
   result.classList.add("visible");
 }
 
-function buildProject() {
-  const stage = new Stage({ costumeNumber: 8 + Math.floor(Math.random() * 4) });
+function _hashRoomId(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function buildProject(roomId) {
+  const stageIndex = roomId ? _hashRoomId(roomId) % 4 : Math.floor(Math.random() * 4);
+  const stage = new Stage({ costumeNumber: 8 + stageIndex });
 
   const sprites = {
     Fighter1: new Fighter1({
@@ -121,11 +131,15 @@ function buildProject() {
 // Reads local fighter inputs and ships them to the server.
 
 function startNetcodeLoop(mySlot) {
+  const slot = Number(mySlot);
   const loop = () => {
-    if (!project || !isConnected()) return;
+    if (!project || !isConnected()) {
+      requestAnimationFrame(loop);
+      return;
+    }
 
     const stage = project.stage;
-    const localFighter = mySlot === 1 ? project.sprites.Fighter1 : project.sprites.Fighter2;
+    const localFighter = slot === 1 ? project.sprites.Fighter1 : project.sprites.Fighter2;
     const localInputs = localFighter.getInputs ? localFighter.getInputs() : null;
 
     if (localInputs) {
@@ -202,6 +216,144 @@ document.getElementById("input-password").addEventListener("keydown", (e) => {
   if (e.key === "Enter") loginBtn.click();
 });
 
+// ─── Toggle password visibility ──────────────────────────────────────────────
+
+document.querySelectorAll(".toggle-pw").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (input.type === "password") {
+      input.type = "text";
+      btn.innerHTML = "&#128064;"; // open eye
+    } else {
+      input.type = "password";
+      btn.innerHTML = "&#128065;"; // closed eye
+    }
+  });
+});
+
+// ─── Sign Up / Confirm forms ─────────────────────────────────────────────────
+
+function showLoginForm() {
+  document.getElementById("login-form").style.display = "";
+  document.getElementById("signup-form").style.display = "none";
+  document.getElementById("confirm-form").style.display = "none";
+}
+
+function showSignUpForm() {
+  document.getElementById("login-form").style.display = "none";
+  document.getElementById("signup-form").style.display = "";
+  document.getElementById("confirm-form").style.display = "none";
+}
+
+function showConfirmForm() {
+  document.getElementById("login-form").style.display = "none";
+  document.getElementById("signup-form").style.display = "none";
+  document.getElementById("confirm-form").style.display = "";
+}
+
+// Toggle links
+document.getElementById("btn-show-signup").addEventListener("click", showSignUpForm);
+document.getElementById("btn-show-login").addEventListener("click", showLoginForm);
+document.getElementById("btn-back-login").addEventListener("click", showLoginForm);
+
+// Sign Up button
+const signupBtn = document.getElementById("btn-signup");
+const signupError = document.getElementById("signup-error");
+const signupStatus = document.getElementById("signup-status");
+let _pendingUsername = null;
+
+signupBtn.addEventListener("click", async () => {
+  const username = document.getElementById("input-signup-username").value.trim();
+  const email = document.getElementById("input-signup-email").value.trim();
+  const password = document.getElementById("input-signup-password").value;
+
+  signupError.classList.remove("visible");
+
+  // Client-side validation — show clear error before calling Cognito
+  const missing = [];
+  if (password.length < 8) missing.push("at least 8 characters");
+  if (!/[A-Z]/.test(password)) missing.push("1 uppercase letter (A-Z)");
+  if (!/[a-z]/.test(password)) missing.push("1 lowercase letter (a-z)");
+  if (!/[0-9]/.test(password)) missing.push("1 number (0-9)");
+  if (!/[^A-Za-z0-9]/.test(password)) missing.push("1 special character (!@#$...)");
+
+  if (missing.length > 0) {
+    signupError.textContent = "Password needs: " + missing.join(", ");
+    signupError.classList.add("visible");
+    return;
+  }
+
+  signupStatus.textContent = "Creating account...";
+  signupBtn.disabled = true;
+
+  try {
+    await signUp(username, email, password);
+    _pendingUsername = username;
+    signupStatus.textContent = "";
+    showConfirmForm();
+    document.getElementById("confirm-status").textContent =
+      "A verification code was sent to " + email;
+  } catch (err) {
+    signupError.textContent = err.message;
+    signupError.classList.add("visible");
+    signupStatus.textContent = "";
+  } finally {
+    signupBtn.disabled = false;
+  }
+});
+
+// Confirm button
+const confirmBtn = document.getElementById("btn-confirm");
+const confirmError = document.getElementById("confirm-error");
+const confirmStatus = document.getElementById("confirm-status");
+
+confirmBtn.addEventListener("click", async () => {
+  const code = document.getElementById("input-confirm-code").value.trim();
+
+  confirmError.classList.remove("visible");
+  confirmStatus.textContent = "Confirming...";
+  confirmBtn.disabled = true;
+
+  try {
+    await confirmSignUp(_pendingUsername, code);
+    confirmStatus.textContent = "";
+    _pendingUsername = null;
+    showLoginForm();
+    loginStatus.textContent = "Account confirmed! You can now log in.";
+  } catch (err) {
+    confirmError.textContent = err.message;
+    confirmError.classList.add("visible");
+    confirmStatus.textContent = "";
+  } finally {
+    confirmBtn.disabled = false;
+  }
+});
+
+// ─── Password requirements real-time check ───────────────────────────────────
+
+const signupPasswordInput = document.getElementById("input-signup-password");
+const reqLength = document.getElementById("req-length");
+const reqUpper = document.getElementById("req-upper");
+const reqLower = document.getElementById("req-lower");
+const reqNumber = document.getElementById("req-number");
+const reqSpecial = document.getElementById("req-special");
+
+function checkPasswordReqs(val) {
+  const checks = [
+    { el: reqLength, met: val.length >= 8 },
+    { el: reqUpper,  met: /[A-Z]/.test(val) },
+    { el: reqLower,  met: /[a-z]/.test(val) },
+    { el: reqNumber, met: /[0-9]/.test(val) },
+    { el: reqSpecial, met: /[^A-Za-z0-9]/.test(val) },
+  ];
+  checks.forEach(({ el, met }) => el.classList.toggle("met", met));
+  return checks.every(({ met }) => met);
+}
+
+signupPasswordInput.addEventListener("input", () => {
+  checkPasswordReqs(signupPasswordInput.value);
+});
+
 // ─── Lobby screen ─────────────────────────────────────────────────────────────
 
 const playBtn     = document.getElementById("btn-play");
@@ -238,24 +390,33 @@ playBtn.addEventListener("click", async () => {
     // Switch to game screen
     showScreen("screen-game");
 
-    // Build and attach the Leopard project
-    project = buildProject();
+    // Clear old match result overlay
+    document.getElementById("round-result").classList.remove("visible");
+
+    // Build and attach the Leopard project (same map for both players)
+    project = buildProject(match.roomId);
     project.attach("#project");
 
+    const playerSlot = Number(match.playerSlot);
+
     // Set the local player slot so fighters know who to control
-    project.stage.vars.myPlayerSlot = match.playerSlot;
+    project.stage.vars.myPlayerSlot = playerSlot;
 
     // Connect WebSocket to the assigned game server
-    connect(match.wsEndpoint, match.roomId, match.playerSlot, session.idToken, {
+    connect(match.wsEndpoint, match.roomId, playerSlot, session.idToken, {
       onMatchStart(slot) {
-        console.log("[game] Match started! You are Player", slot);
+        const yourSlot = Number(slot);
+        console.log("[game] Match started! You are Player", yourSlot);
+        project.stage.vars.myPlayerSlot = yourSlot;
+        project.stage.vars.p1Inputs = { left: 0, right: 0, jump: 0, attack: 0 };
+        project.stage.vars.p2Inputs = { left: 0, right: 0, jump: 0, attack: 0 };
         project.greenFlag();
         startRound();
-        startNetcodeLoop(slot);
+        startNetcodeLoop(yourSlot);
       },
       onOpponentInputs(inputs) {
-        // Write opponent inputs into stage vars for the physics engine to read
-        if (match.playerSlot === 1) {
+        const slot = Number(project.stage.vars.myPlayerSlot);
+        if (slot === 1) {
           project.stage.vars.p2Inputs = inputs;
         } else {
           project.stage.vars.p1Inputs = inputs;
@@ -287,5 +448,7 @@ document.getElementById("btn-return-lobby").addEventListener("click", () => {
   roundEnded = true;
   roundEndsAt = 0;
   disconnect();
+  project = null;
+  matchmakingAborted = false;
   showScreen("screen-lobby");
 });

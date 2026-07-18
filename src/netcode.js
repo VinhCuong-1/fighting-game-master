@@ -82,6 +82,7 @@ import { Config } from "./config.js";
 // ─── Internal state ───────────────────────────────────────────────────────────
 
 let _socket = null;
+let _wsEndpoint = null;
 let _playerSlot = null;
 let _roomId = null;
 let _idToken = null;
@@ -89,6 +90,7 @@ let _onMatchStartCb = null;
 let _onOpponentInputsCb = null;
 let _onMatchEndCb = null;
 let _reconnectAttempts = 0;
+let _reconnectTimer = null;
 const MAX_RECONNECT = 3;
 
 // ─── Mock WebSocket shim ──────────────────────────────────────────────────────
@@ -137,8 +139,8 @@ function _attachHandlers(socket) {
 
     switch (msg.type) {
       case "match_start":
-        _playerSlot = msg.yourSlot;
-        if (_onMatchStartCb) _onMatchStartCb(msg.yourSlot);
+        _playerSlot = Number(msg.yourSlot);
+        if (_onMatchStartCb) _onMatchStartCb(_playerSlot);
         break;
 
       case "opponent_inputs":
@@ -160,23 +162,26 @@ function _attachHandlers(socket) {
   });
 
   socket.addEventListener("close", () => {
-    if (_reconnectAttempts < MAX_RECONNECT) {
+    if (_reconnectAttempts < MAX_RECONNECT && _wsEndpoint) {
       _reconnectAttempts++;
       console.warn(`[netcode] WS closed. Reconnecting (${_reconnectAttempts}/${MAX_RECONNECT})...`);
-      setTimeout(() => _openSocket(), 1500 * _reconnectAttempts);
+      _reconnectTimer = setTimeout(() => _openSocket(), 1500 * _reconnectAttempts);
     } else {
-      console.error("[netcode] Max reconnects reached. Connection failed.");
-      if (_onMatchEndCb) _onMatchEndCb(null); // signal error to UI
+      if (_reconnectAttempts >= MAX_RECONNECT) {
+        console.error("[netcode] Max reconnects reached. Connection failed.");
+        if (_onMatchEndCb) _onMatchEndCb(null);
+      }
     }
   });
 }
 
 function _openSocket() {
-  const url = `${_socket === null ? Config.WS_SERVER : _socket._url}`;
-  const ws = new WebSocket(`${Config.WS_SERVER}?room=${_roomId}&slot=${_playerSlot}`);
+  const base = _wsEndpoint || Config.WS_SERVER;
+  const ws = new WebSocket(`${base}?room=${_roomId}&slot=${_playerSlot}`);
 
   ws.addEventListener("open", () => {
     _reconnectAttempts = 0;
+    _reconnectTimer = null;
     // Authenticate with the server immediately on open
     ws.send(JSON.stringify({
       type: "auth",
@@ -209,7 +214,8 @@ function _openSocket() {
  */
 export function connect(wsEndpoint, roomId, playerSlot, idToken, callbacks = {}) {
   _roomId = roomId;
-  _playerSlot = playerSlot;
+  _playerSlot = Number(playerSlot);
+  _wsEndpoint = wsEndpoint || Config.WS_SERVER;
   _idToken = idToken;
   _onMatchStartCb = callbacks.onMatchStart || null;
   _onOpponentInputsCb = callbacks.onOpponentInputs || null;
@@ -256,6 +262,10 @@ export function sendInputs(inputs) {
  * Call this on match end, logout, or fatal errors.
  */
 export function disconnect() {
+  if (_reconnectTimer) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
   if (_socket) {
     _socket.close();
     _socket = null;
@@ -263,6 +273,7 @@ export function disconnect() {
   _playerSlot = null;
   _roomId = null;
   _idToken = null;
+  _wsEndpoint = null;
 }
 
 /**

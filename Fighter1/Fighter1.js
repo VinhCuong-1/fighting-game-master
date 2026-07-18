@@ -162,7 +162,7 @@ export default class Fighter1 extends Sprite {
     if (!this.stage.vars.roundActive) {
       return { left: 0, right: 0, jump: 0, attack: 0 };
     }
-    const slot = this.stage.vars.myPlayerSlot;
+    const slot = Number(this.stage.vars.myPlayerSlot);
     if (slot === 0 || slot === 1) {
       return {
         left: this.keyPressed("a") ? 1 : 0,

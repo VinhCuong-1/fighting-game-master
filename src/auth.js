@@ -181,3 +181,81 @@ export function logout() {
   _session = null;
   localStorage.removeItem("fg_refresh_token");
 }
+
+// ─── Sign Up (self-registration) ────────────────────────────────────────────
+
+/**
+ * signUp() — Registers a new user in the Cognito User Pool.
+ *
+ * After success, Cognito sends a verification code to the provided email.
+ * Call confirmSignUp() with that code to activate the account.
+ *
+ * @param {string} username
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<{ userSub: string }>}
+ * @throws {Error} if registration fails
+ */
+export async function signUp(username, email, password) {
+  if (!username || !email || !password) {
+    throw new Error("Username, email, and password are required.");
+  }
+
+  const AmazonCognitoIdentity = await _loadCognitoSdk();
+
+  const userPool = new AmazonCognitoIdentity.CognitoUserPool({
+    UserPoolId: Config.COGNITO_USER_POOL_ID,
+    ClientId: Config.COGNITO_APP_CLIENT_ID,
+  });
+
+  const attributeEmail = new AmazonCognitoIdentity.CognitoUserAttribute({
+    Name: "email",
+    Value: email,
+  });
+
+  return new Promise((resolve, reject) => {
+    userPool.signUp(username, password, [attributeEmail], null, (err, result) => {
+      if (err) {
+        reject(new Error(err.message || "Sign up failed"));
+      } else {
+        resolve({ userSub: result.userSub });
+      }
+    });
+  });
+}
+
+/**
+ * confirmSignUp() — Confirms a new user with the verification code sent to their email.
+ *
+ * @param {string} username
+ * @param {string} code — 6-digit verification code from email
+ * @returns {Promise<string>} — "SUCCESS" on success
+ * @throws {Error} if confirmation fails
+ */
+export async function confirmSignUp(username, code) {
+  if (!username || !code) {
+    throw new Error("Username and verification code are required.");
+  }
+
+  const AmazonCognitoIdentity = await _loadCognitoSdk();
+
+  const userPool = new AmazonCognitoIdentity.CognitoUserPool({
+    UserPoolId: Config.COGNITO_USER_POOL_ID,
+    ClientId: Config.COGNITO_APP_CLIENT_ID,
+  });
+
+  const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
+    Username: username,
+    Pool: userPool,
+  });
+
+  return new Promise((resolve, reject) => {
+    cognitoUser.confirmRegistration(code, true, (err, result) => {
+      if (err) {
+        reject(new Error(err.message || "Confirmation failed"));
+      } else {
+        resolve(result);
+      }
+    });
+  });
+}

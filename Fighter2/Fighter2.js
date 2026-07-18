@@ -162,12 +162,13 @@ export default class Fighter2 extends Sprite {
     if (!this.stage.vars.roundActive) {
       return { left: 0, right: 0, jump: 0, attack: 0 };
     }
-    const slot = this.stage.vars.myPlayerSlot;
+    const slot = Number(this.stage.vars.myPlayerSlot);
     if (slot === 0 || slot === 2) {
+      // Same keys as Player 1 — each client uses its own keyboard on separate machines.
       return {
-        left: this.keyPressed("left") ? 1 : 0,
-        right: this.keyPressed("right") ? 1 : 0,
-        jump: this.keyPressed("up") ? 1 : 0,
+        left: this.keyPressed("a") ? 1 : 0,
+        right: this.keyPressed("d") ? 1 : 0,
+        jump: this.keyPressed("w") ? 1 : 0,
         attack: this.keyPressed("j") ? 1 : 0,
       };
     } else {

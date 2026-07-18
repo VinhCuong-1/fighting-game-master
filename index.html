@@ -193,6 +193,76 @@
         min-height: 22px;
       }
 
+      /* ── Switch link (Login / Sign up toggle) ─────────────────────── */
+      .switch-link {
+        color: var(--c-muted);
+        font-size: 0.82rem;
+        text-align: center;
+        margin-top: 18px;
+      }
+      .switch-link a {
+        color: var(--c-accent-hl);
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .switch-link a:hover { text-decoration: underline; }
+
+      /* ── Confirm info text ────────────────────────────────────────── */
+      .confirm-info {
+        color: var(--c-muted);
+        font-size: 0.85rem;
+        text-align: center;
+        margin-bottom: 20px;
+        line-height: 1.5;
+      }
+
+      /* ── Password requirements list ────────────────────────────────── */
+      .password-req {
+        list-style: none;
+        margin: 8px 0 0 0;
+        padding: 0;
+      }
+      .password-req li {
+        font-size: 0.75rem;
+        color: var(--c-muted);
+        padding: 2px 0;
+        transition: color 0.2s;
+      }
+      .password-req li::before {
+        content: '\2717';
+        margin-right: 6px;
+        font-weight: 700;
+      }
+      .password-req li.met {
+        color: #22c55e;
+      }
+      .password-req li.met::before {
+        content: '\2713';
+      }
+
+      /* ── Password toggle (show/hide) ──────────────────────────────── */
+      .input-with-toggle {
+        position: relative;
+      }
+      .input-with-toggle input {
+        width: 100%;
+        padding-right: 44px;
+      }
+      .toggle-pw {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: var(--c-muted);
+        cursor: pointer;
+        font-size: 1.1rem;
+        padding: 4px;
+        line-height: 1;
+      }
+      .toggle-pw:hover { color: var(--c-text); }
+
       /* ── Player badge (lobby) ───────────────────────────────────────── */
       .player-badge {
         display: flex;
@@ -357,30 +427,106 @@
         <div class="logo">⚡ FIGHTER</div>
         <div class="logo-sub">Online PvP</div>
 
-        <div class="field">
-          <label for="input-username">Username</label>
-          <input
-            id="input-username"
-            type="text"
-            placeholder="Enter your username"
-            autocomplete="username"
-          />
+        <!-- ── Login form ──────────────────────────────────────────── -->
+        <div id="login-form">
+          <div class="field">
+            <label for="input-username">Username</label>
+            <input
+              id="input-username"
+              type="text"
+              placeholder="Enter your username"
+              autocomplete="username"
+            />
+          </div>
+
+          <div class="field">
+            <label for="input-password">Password</label>
+            <div class="input-with-toggle">
+              <input
+                id="input-password"
+                type="password"
+                placeholder="Enter your password"
+                autocomplete="current-password"
+              />
+              <button type="button" class="toggle-pw" data-target="input-password" aria-label="Show password">&#128065;</button>
+            </div>
+          </div>
+
+          <button id="btn-login" class="btn btn-primary">Login</button>
+
+          <div id="login-error" class="error-msg"></div>
+          <p class="status-msg" id="login-status"></p>
+          <p class="switch-link">Don't have an account? <a id="btn-show-signup">Sign up</a></p>
         </div>
 
-        <div class="field">
-          <label for="input-password">Password</label>
-          <input
-            id="input-password"
-            type="password"
-            placeholder="Enter your password"
-            autocomplete="current-password"
-          />
+        <!-- ── Sign up form (hidden) ───────────────────────────────── -->
+        <div id="signup-form" style="display:none">
+          <div class="field">
+            <label for="input-signup-username">Username</label>
+            <input
+              id="input-signup-username"
+              type="text"
+              placeholder="Choose a username"
+              autocomplete="username"
+            />
+          </div>
+
+          <div class="field">
+            <label for="input-signup-email">Email</label>
+            <input
+              id="input-signup-email"
+              type="email"
+              placeholder="Enter your email"
+              autocomplete="email"
+            />
+          </div>
+
+          <div class="field">
+            <label for="input-signup-password">Password</label>
+            <div class="input-with-toggle">
+              <input
+                id="input-signup-password"
+                type="password"
+                placeholder="Choose a password"
+                autocomplete="new-password"
+              />
+              <button type="button" class="toggle-pw" data-target="input-signup-password" aria-label="Show password">&#128065;</button>
+            </div>
+            <ul id="password-requirements" class="password-req">
+              <li id="req-length">At least 8 characters</li>
+              <li id="req-upper">At least 1 uppercase letter (A-Z)</li>
+              <li id="req-lower">At least 1 lowercase letter (a-z)</li>
+              <li id="req-number">At least 1 number (0-9)</li>
+              <li id="req-special">At least 1 special character (!@#$...)</li>
+            </ul>
+          </div>
+
+          <button id="btn-signup" class="btn btn-primary">Sign Up</button>
+
+          <div id="signup-error" class="error-msg"></div>
+          <p class="status-msg" id="signup-status"></p>
+          <p class="switch-link">Already have an account? <a id="btn-show-login">Login</a></p>
         </div>
 
-        <button id="btn-login" class="btn btn-primary">Login</button>
+        <!-- ── Confirm code form (hidden) ──────────────────────────── -->
+        <div id="confirm-form" style="display:none">
+          <p class="confirm-info">We sent a verification code to your email. Enter it below:</p>
+          <div class="field">
+            <label for="input-confirm-code">Verification Code</label>
+            <input
+              id="input-confirm-code"
+              type="text"
+              placeholder="Enter code"
+            />
+          </div>
 
-        <div id="login-error" class="error-msg"></div>
-        <p class="status-msg" id="login-status"></p>
+          <button id="btn-confirm" class="btn btn-primary">Confirm</button>
+
+          <div id="confirm-error" class="error-msg"></div>
+          <p class="status-msg" id="confirm-status"></p>
+          <p class="switch-link"><a id="btn-back-login">Back to Login</a></p>
+        </div>
+
       </div>
     </div>
 
