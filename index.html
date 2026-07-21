@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fighting Game</title>
+    <link rel="stylesheet" href="https://unpkg.com/leopard@^1/dist/index.min.css" />
+    <style>
+      /* ── Reset & Tokens ─────────────────────────────────────────────── */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        --c-bg:        #0a0a10;
+        --c-surface:   #13131f;
+        --c-card:      #1a1a2e;
+        --c-border:    #2a2a44;
+        --c-accent:    #7c3aed;
+        --c-accent-hl: #9d5cf6;
+        --c-danger:    #ef4444;
+        --c-text:      #e2e2f0;
+        --c-muted:     #8888aa;
+        --radius:      12px;
+        --glow:        0 0 24px rgba(124,58,237,0.35);
+      }
+
+      body {
+        font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+        background: var(--c-bg);
+        color: var(--c-text);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      /* ── Animated background grid ───────────────────────────────────── */
+      body::before {
+        content: '';
+        position: fixed; inset: 0;
+        background-image:
+          linear-gradient(rgba(124,58,237,0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(124,58,237,0.04) 1px, transparent 1px);
+        background-size: 40px 40px;
+        animation: gridShift 20s linear infinite;
+        pointer-events: none;
+      }
+      @keyframes gridShift {
+        from { background-position: 0 0; }
+        to   { background-position: 40px 40px; }
+      }
+
+      /* ── Screen manager ─────────────────────────────────────────────── */
+      .screen {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 100vh;
+        animation: fadeIn 0.3s ease;
+      }
+      .screen.active { display: flex; }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      /* ── Card ───────────────────────────────────────────────────────── */
+      .card {
+        background: var(--c-card);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        padding: 40px 48px;
+        width: 100%;
+        max-width: 420px;
+        box-shadow: var(--glow), 0 20px 60px rgba(0,0,0,0.5);
+      }
+
+      /* ── Logo / title ───────────────────────────────────────────────── */
+      .logo {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -1px;
+        text-align: center;
+        margin-bottom: 6px;
+        background: linear-gradient(135deg, #9d5cf6 0%, #ec4899 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .logo-sub {
+        font-size: 0.8rem;
+        color: var(--c-muted);
+        text-align: center;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        margin-bottom: 36px;
+      }
+
+      /* ── Form elements ──────────────────────────────────────────────── */
+      .field { margin-bottom: 18px; }
+      .field label {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--c-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+      }
+      .field input {
+        width: 100%;
+        background: var(--c-surface);
+        border: 1px solid var(--c-border);
+        border-radius: 8px;
+        color: var(--c-text);
+        padding: 12px 16px;
+        font-size: 0.95rem;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      .field input:focus {
+        border-color: var(--c-accent);
+        box-shadow: 0 0 0 3px rgba(124,58,237,0.2);
+      }
+
+      /* ── Buttons ────────────────────────────────────────────────────── */
+      .btn {
+        width: 100%;
+        padding: 14px;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s;
+        letter-spacing: 0.5px;
+        position: relative;
+        overflow: hidden;
+      }
+      .btn::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: white;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .btn:active::after { opacity: 0.08; }
+      .btn-primary {
+        background: linear-gradient(135deg, var(--c-accent) 0%, #9333ea 100%);
+        color: white;
+        box-shadow: 0 4px 20px rgba(124,58,237,0.4);
+        margin-top: 8px;
+      }
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 28px rgba(124,58,237,0.55);
+      }
+      .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+      .btn-danger {
+        background: rgba(239,68,68,0.12);
+        color: var(--c-danger);
+        border: 1px solid rgba(239,68,68,0.3);
+        margin-top: 12px;
+        font-size: 0.85rem;
+        padding: 10px;
+      }
+      .btn-danger:hover { background: rgba(239,68,68,0.2); }
+
+      /* ── Error / status messages ────────────────────────────────────── */
+      .error-msg {
+        background: rgba(239,68,68,0.1);
+        border: 1px solid rgba(239,68,68,0.3);
+        border-radius: 8px;
+        color: var(--c-danger);
+        font-size: 0.85rem;
+        padding: 10px 14px;
+        margin-top: 14px;
+        display: none;
+      }
+      .error-msg.visible { display: block; }
+
+      .status-msg {
+        color: var(--c-muted);
+        font-size: 0.85rem;
+        text-align: center;
+        margin-top: 16px;
+        min-height: 22px;
+      }
+
+      /* ── Switch link (Login / Sign up toggle) ─────────────────────── */
+      .switch-link {
+        color: var(--c-muted);
+        font-size: 0.82rem;
+        text-align: center;
+        margin-top: 18px;
+      }
+      .switch-link a {
+        color: var(--c-accent-hl);
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .switch-link a:hover { text-decoration: underline; }
+
+      /* ── Confirm info text ────────────────────────────────────────── */
+      .confirm-info {
+        color: var(--c-muted);
+        font-size: 0.85rem;
+        text-align: center;
+        margin-bottom: 20px;
+        line-height: 1.5;
+      }
+
+      /* ── Password requirements list ────────────────────────────────── */
+      .password-req {
+        list-style: none;
+        margin: 8px 0 0 0;
+        padding: 0;
+      }
+      .password-req li {
+        font-size: 0.75rem;
+        color: var(--c-muted);
+        padding: 2px 0;
+        transition: color 0.2s;
+      }
+      .password-req li::before {
+        content: '\2717';
+        margin-right: 6px;
+        font-weight: 700;
+      }
+      .password-req li.met {
+        color: #22c55e;
+      }
+      .password-req li.met::before {
+        content: '\2713';
+      }
+
+      /* ── Password toggle (show/hide) ──────────────────────────────── */
+      .input-with-toggle {
+        position: relative;
+      }
+      .input-with-toggle input {
+        width: 100%;
+        padding-right: 44px;
+      }
+      .toggle-pw {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: var(--c-muted);
+        cursor: pointer;
+        font-size: 1.1rem;
+        padding: 4px;
+        line-height: 1;
+      }
+      .toggle-pw:hover { color: var(--c-text); }
+
+      /* ── Player badge (lobby) ───────────────────────────────────────── */
+      .player-badge {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--c-surface);
+        border: 1px solid var(--c-border);
+        border-radius: 50px;
+        padding: 10px 20px 10px 10px;
+        margin-bottom: 32px;
+      }
+      .avatar {
+        width: 40px; height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--c-accent), #ec4899);
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 1rem;
+        flex-shrink: 0;
+      }
+      .player-badge .name {
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+      .player-badge .online {
+        font-size: 0.75rem;
+        color: #22c55e;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .player-badge .online::before {
+        content: '';
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: #22c55e;
+        display: inline-block;
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.4; }
+      }
+
+      /* ── Searching spinner ──────────────────────────────────────────── */
+      .spinner {
+        width: 48px; height: 48px;
+        border: 3px solid var(--c-border);
+        border-top-color: var(--c-accent);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+        margin: 0 auto 20px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* ── Game screen ────────────────────────────────────────────────── */
+      #screen-game {
+        background: #000;
+        padding: 0;
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+      #project,
+      #project .leopard__project {
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: none;
+      }
+      #project canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      #screen-game .leopard__watcher { display: none !important; }
+      .fight-hud {
+        position: absolute;
+        z-index: 5;
+        top: clamp(16px, 3vw, 42px);
+        left: clamp(16px, 4vw, 72px);
+        right: clamp(16px, 4vw, 72px);
+        display: flex;
+        justify-content: space-between;
+        gap: 8vw;
+        pointer-events: none;
+      }
+      .health-panel { width: min(34vw, 460px); }
+      .health-panel.right { text-align: right; }
+      .fighter-name {
+        color: #fff;
+        font-size: clamp(12px, 1.4vw, 20px);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        margin-bottom: 7px;
+        text-shadow: 2px 2px 0 #1b1025;
+      }
+      .health-track {
+        height: clamp(14px, 2.1vw, 30px);
+        border: 3px solid #f6d365;
+        border-radius: 4px;
+        background: rgba(22, 10, 31, 0.84);
+        box-shadow: 0 3px 0 #54206e, 0 0 14px rgba(245, 183, 52, 0.55);
+        overflow: hidden;
+      }
+      .health-fill {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, #eb3b5a, #ffcf4a 45%, #76e36a);
+        transition: width 120ms linear;
+      }
+      .health-panel.right .health-fill { margin-left: auto; }
+      .round-timer {
+        position: absolute;
+        left: 50%;
+        top: -4px;
+        transform: translateX(-50%);
+        color: #fff4c7;
+        font-size: clamp(28px, 4vw, 58px);
+        font-weight: 800;
+        line-height: 1;
+        text-shadow: 3px 3px 0 #35164a, 0 0 14px rgba(255, 207, 74, 0.8);
+      }
+      .round-result {
+        position: absolute;
+        z-index: 10;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(8, 4, 15, 0.58);
+      }
+      .round-result.visible { display: flex; }
+      .round-result-card {
+        width: min(420px, calc(100vw - 40px));
+        padding: 32px;
+        text-align: center;
+        border: 3px solid #f6d365;
+        border-radius: 14px;
+        background: linear-gradient(145deg, #28133e, #100917);
+        box-shadow: 0 0 32px rgba(246, 211, 101, 0.45);
+      }
+      .round-result-card h2 {
+        margin: 0;
+        color: #fff4c7;
+        font-size: clamp(28px, 5vw, 52px);
+      }
+      .round-result-card p { color: #ddd1ea; margin: 12px 0 24px; }
+    </style>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Screen 1 — Login
+    ════════════════════════════════════════════════════════════════════ -->
+    <div id="screen-login" class="screen active">
+      <div class="card">
+        <div class="logo">⚡ FIGHTER</div>
+        <div class="logo-sub">Online PvP</div>
+
+        <!-- ── Login form ──────────────────────────────────────────── -->
+        <div id="login-form">
+          <div class="field">
+            <label for="input-username">Username</label>
+            <input
+              id="input-username"
+              type="text"
+              placeholder="Enter your username"
+              autocomplete="username"
+            />
+          </div>
+
+          <div class="field">
+            <label for="input-password">Password</label>
+            <div class="input-with-toggle">
+              <input
+                id="input-password"
+                type="password"
+                placeholder="Enter your password"
+                autocomplete="current-password"
+              />
+              <button type="button" class="toggle-pw" data-target="input-password" aria-label="Show password">&#128065;</button>
+            </div>
+          </div>
+
+          <button id="btn-login" class="btn btn-primary">Login</button>
+
+          <div id="login-error" class="error-msg"></div>
+          <p class="status-msg" id="login-status"></p>
+          <p class="switch-link">Don't have an account? <a id="btn-show-signup">Sign up</a></p>
+        </div>
+
+        <!-- ── Sign up form (hidden) ───────────────────────────────── -->
+        <div id="signup-form" style="display:none">
+          <div class="field">
+            <label for="input-signup-username">Username</label>
+            <input
+              id="input-signup-username"
+              type="text"
+              placeholder="Choose a username"
+              autocomplete="username"
+            />
+          </div>
+
+          <div class="field">
+            <label for="input-signup-email">Email</label>
+            <input
+              id="input-signup-email"
+              type="email"
+              placeholder="Enter your email"
+              autocomplete="email"
+            />
+          </div>
+
+          <div class="field">
+            <label for="input-signup-password">Password</label>
+            <div class="input-with-toggle">
+              <input
+                id="input-signup-password"
+                type="password"
+                placeholder="Choose a password"
+                autocomplete="new-password"
+              />
+              <button type="button" class="toggle-pw" data-target="input-signup-password" aria-label="Show password">&#128065;</button>
+            </div>
+            <ul id="password-requirements" class="password-req">
+              <li id="req-length">At least 8 characters</li>
+              <li id="req-upper">At least 1 uppercase letter (A-Z)</li>
+              <li id="req-lower">At least 1 lowercase letter (a-z)</li>
+              <li id="req-number">At least 1 number (0-9)</li>
+              <li id="req-special">At least 1 special character (!@#$...)</li>
+            </ul>
+          </div>
+
+          <button id="btn-signup" class="btn btn-primary">Sign Up</button>
+
+          <div id="signup-error" class="error-msg"></div>
+          <p class="status-msg" id="signup-status"></p>
+          <p class="switch-link">Already have an account? <a id="btn-show-login">Login</a></p>
+        </div>
+
+        <!-- ── Confirm code form (hidden) ──────────────────────────── -->
+        <div id="confirm-form" style="display:none">
+          <p class="confirm-info">We sent a verification code to your email. Enter it below:</p>
+          <div class="field">
+            <label for="input-confirm-code">Verification Code</label>
+            <input
+              id="input-confirm-code"
+              type="text"
+              placeholder="Enter code"
+            />
+          </div>
+
+          <button id="btn-confirm" class="btn btn-primary">Confirm</button>
+
+          <div id="confirm-error" class="error-msg"></div>
+          <p class="status-msg" id="confirm-status"></p>
+          <p class="switch-link"><a id="btn-back-login">Back to Login</a></p>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Screen 2 — Lobby
+    ════════════════════════════════════════════════════════════════════ -->
+    <div id="screen-lobby" class="screen">
+      <div class="card">
+        <div class="player-badge">
+          <div class="avatar" id="lobby-avatar">?</div>
+          <div>
+            <div class="name" id="lobby-username">Player</div>
+            <div class="online">Online</div>
+          </div>
+        </div>
+
+        <!-- Normal state -->
+        <div id="lobby-idle">
+          <button id="btn-play" class="btn btn-primary">⚔ Find Match</button>
+        </div>
+
+        <!-- Searching state (hidden by default) -->
+        <div id="lobby-searching" style="display:none; text-align:center;">
+          <div class="spinner"></div>
+          <p id="search-status" class="status-msg">Searching for opponent...</p>
+          <button id="btn-cancel" class="btn btn-danger">Cancel</button>
+        </div>
+
+        <div id="lobby-error" class="error-msg"></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Screen 3 — Game Canvas
+    ════════════════════════════════════════════════════════════════════ -->
+    <div id="screen-game" class="screen">
+      <div id="project"></div>
+      <div class="fight-hud" aria-label="Player health">
+        <div class="health-panel">
+          <div class="fighter-name">HUMAN</div>
+          <div class="health-track"><div id="p1-health" class="health-fill"></div></div>
+        </div>
+        <div class="health-panel right">
+          <div class="fighter-name">DEMON</div>
+          <div class="health-track"><div id="p2-health" class="health-fill"></div></div>
+        </div>
+        <div id="round-timer" class="round-timer">60</div>
+      </div>
+      <div id="round-result" class="round-result" role="dialog" aria-live="assertive">
+        <div class="round-result-card">
+          <h2 id="round-result-title">HUMAN WINS</h2>
+          <p id="round-result-detail">CONGRATULATIONS!!!</p>
+          <button id="btn-return-lobby" class="btn btn-primary">Back to Lobby</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Application entry point
+    ════════════════════════════════════════════════════════════════════ -->
+    <script type="module" src="./index.js"></script>
+  </body>
+</html>

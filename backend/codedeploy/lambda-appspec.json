@@ -1,0 +1,14 @@
+{
+  "version": 0.0,
+  "Resources": [{
+    "MyFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Name": "FightingGameMatchmaker",
+        "Alias": "live",
+        "CurrentVersion": "PLACEHOLDER_CURRENT",
+        "TargetVersion": "PLACEHOLDER_TARGET"
+      }
+    }
+  }]
+}

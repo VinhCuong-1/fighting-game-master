@@ -1,0 +1,209 @@
+# Flow C — CI/CD: client -> S3, MatchMaker Lambda (CodeDeploy alias), game-server -> EC2 fleet (CodeDeploy)
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  LAMBDA_FUNCTION: FightingGameMatchmaker
+  CODEDEPLOY_LAMBDA_APP: FightingGameMatchmakerDeploy
+  CODEDEPLOY_LAMBDA_DG: FightingGameMatchmaker-live
+  CODEDEPLOY_EC2_APP: FightingGameServerDeploy
+  CODEDEPLOY_EC2_DG: FightingGameServer-fleet
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── C2: Deploy MatchMaker Lambda (CodeDeploy alias traffic shift) ─
+      - name: Package MatchMaker
+        run: |
+          cp backend/lambda-matchmaker.mjs /tmp/index.mjs
+          cd /tmp && zip -q matchmaker.zip index.mjs
+
+      - name: Resolve live alias baseline (before code update)
+        id: alias
+        run: |
+          CUR=$(aws lambda get-alias \
+            --function-name "$LAMBDA_FUNCTION" \
+            --name live \
+            --query FunctionVersion --output text)
+          if [ "$CUR" = '$LATEST' ]; then
+            echo "Alias 'live' points to \$LATEST — publishing baseline and pinning alias..."
+            CUR=$(aws lambda publish-version \
+              --function-name "$LAMBDA_FUNCTION" \
+              --query Version --output text)
+            aws lambda update-alias \
+              --function-name "$LAMBDA_FUNCTION" \
+              --name live \
+              --function-version "$CUR"
+          fi
+          if [ -z "$CUR" ] || [ "$CUR" = "None" ]; then
+            echo "Could not resolve a numeric version for alias 'live'."
+            exit 1
+          fi
+          echo "current_version=$CUR" >> "$GITHUB_OUTPUT"
+          echo "Live alias baseline version: $CUR"
+
+      - name: Upload MatchMaker code to Lambda ($LATEST)
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION" \
+            --zip-file fileb:///tmp/matchmaker.zip
+          aws lambda wait function-updated --function-name "$LAMBDA_FUNCTION"
+
+      - name: Publish new Lambda version
+        id: publish
+        run: |
+          NEW=$(aws lambda publish-version \
+            --function-name "$LAMBDA_FUNCTION" \
+            --query Version --output text)
+          echo "target_version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Published target version: $NEW"
+
+      - name: Build Lambda AppSpec and revision
+        run: |
+          jq -n \
+            --arg current "${{ steps.alias.outputs.current_version }}" \
+            --arg target "${{ steps.publish.outputs.target_version }}" \
+            --arg name "$LAMBDA_FUNCTION" \
+            '{
+              version: 0.0,
+              Resources: [{
+                MyFunction: {
+                  Type: "AWS::Lambda::Function",
+                  Properties: {
+                    Name: $name,
+                    Alias: "live",
+                    CurrentVersion: $current,
+                    TargetVersion: $target
+                  }
+                }
+              }]
+            }' > /tmp/appspec.json
+          jq -n --arg content "$(jq -c . /tmp/appspec.json)" \
+            '{revisionType: "AppSpecContent", appSpecContent: {content: $content}}' \
+            > /tmp/revision.json
+          echo "AppSpec:" && cat /tmp/appspec.json
+
+      - name: CodeDeploy Lambda traffic shift
+        id: codedeploy_lambda
+        run: |
+          CURRENT="${{ steps.alias.outputs.current_version }}"
+          TARGET="${{ steps.publish.outputs.target_version }}"
+          if [ "$CURRENT" = "$TARGET" ]; then
+            echo "No version change ($CURRENT) — skipping CodeDeploy traffic shift."
+            exit 0
+          fi
+          DEPLOY_ID=$(bash scripts/codedeploy-create-with-retry.sh \
+            --application-name "$CODEDEPLOY_LAMBDA_APP" \
+            --deployment-group-name "$CODEDEPLOY_LAMBDA_DG" \
+            --revision file:///tmp/revision.json \
+            --description "GitHub Actions deploy ${{ github.sha }}" \
+            --query deploymentId \
+            --output text)
+          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+          echo "Lambda CodeDeploy deployment: $DEPLOY_ID"
+
+      - name: Wait for Lambda CodeDeploy
+        if: steps.codedeploy_lambda.outputs.deployment_id != ''
+        run: |
+          DEPLOY_ID="${{ steps.codedeploy_lambda.outputs.deployment_id }}"
+          aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"
+
+      # ── C2b: Build + sync browser client to S3 (Flow A assets) ───────
+      - name: Prepare client bundle
+        env:
+          COGNITO_REGION: ${{ env.AWS_REGION }}
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          COGNITO_APP_CLIENT_ID: ${{ secrets.COGNITO_APP_CLIENT_ID }}
+          COGNITO_IDENTITY_POOL_ID: ${{ secrets.COGNITO_IDENTITY_POOL_ID }}
+          MATCHMAKER_API_BASE: ${{ secrets.MATCHMAKER_API_BASE }}
+          WS_SERVER: ${{ secrets.WS_SERVER }}
+        run: |
+          mkdir -p dist-client
+          rsync -a --exclude backend --exclude .git --exclude .github \
+            --exclude dist-client --exclude node_modules --exclude .asset-backups \
+            --exclude src/config.js ./ dist-client/
+          mkdir -p dist-client/src
+          node scripts/generate-config.js > dist-client/src/config.js
+
+      - name: Sync client to S3
+        run: |
+          aws s3 sync dist-client/ "s3://${{ secrets.ASSETS_BUCKET }}/" \
+            --delete \
+            --exclude ".git/*"
+
+      # ── C3: Package game-server (appspec + hooks) for CodeDeploy ────
+      - name: Package game server
+        env:
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+        run: |
+          cd backend/game-server
+          printf '%s\n' \
+            "COGNITO_REGION=ap-southeast-1" \
+            "COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}" \
+            "MATCHES_TABLE=ActiveMatches" \
+            "PORT=9000" \
+            > fighting-game.env
+          npm ci --omit=dev
+          zip -qr /tmp/game-server.zip . \
+            -x "*.git*" \
+            -x "node_modules/*" \
+            -x "install-from-s3.sh" \
+            -x "fighting-game.env.example"
+
+      - name: Upload game-server revision to S3
+        run: |
+          aws s3 cp /tmp/game-server.zip \
+            "s3://${{ secrets.ASSETS_BUCKET }}/deploy/game-server.zip"
+
+      # ── C4: Roll out game-server on tagged EC2 fleet (CodeDeploy) ───
+      - name: CodeDeploy EC2 fleet rollout
+        id: codedeploy_ec2
+        run: |
+          DEPLOY_ID=$(bash scripts/codedeploy-create-with-retry.sh \
+            --application-name "$CODEDEPLOY_EC2_APP" \
+            --deployment-group-name "$CODEDEPLOY_EC2_DG" \
+            --s3-location "bucket=${{ secrets.ASSETS_BUCKET }},key=deploy/game-server.zip,bundleType=zip" \
+            --description "GitHub Actions game-server ${{ github.sha }}" \
+            --file-exists-behavior OVERWRITE \
+            --query deploymentId \
+            --output text)
+          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+          echo "CodeDeploy EC2 deployment: $DEPLOY_ID"
+
+      - name: Wait for EC2 CodeDeploy
+        run: |
+          DEPLOY_ID="${{ steps.codedeploy_ec2.outputs.deployment_id }}"
+          if ! aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"; then
+            echo "::error::EC2 CodeDeploy failed — deployment $DEPLOY_ID"
+            aws deploy get-deployment --deployment-id "$DEPLOY_ID" \
+              --query 'deploymentInfo.{status:status,error:errorInformation,code:errorInformation.code,message:errorInformation.message}' \
+              --output json
+            echo "--- Per-instance events ---"
+            for INSTANCE in $(aws deploy list-deployment-instances --deployment-id "$DEPLOY_ID" --query instanceIds --output text); do
+              echo "Instance: $INSTANCE"
+              aws deploy get-deployment-instance \
+                --deployment-id "$DEPLOY_ID" \
+                --instance-id "$INSTANCE" \
+                --query 'instanceSummary.{status:status,lifecycle:lifecycleEvents[*].{name:lifecycleEventName,status:status,diagnostics:diagnostics.logTail}}' \
+                --output json || true
+            done
+            exit 1
+          fi

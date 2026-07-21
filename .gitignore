@@ -1,0 +1,5 @@
+src/config.js
+backend/game-server/fighting-game.env
+backend/game-server/node_modules/
+backend/node_modules/
+node_modules/

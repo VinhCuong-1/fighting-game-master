@@ -1,0 +1,12 @@
+{
+  "name": "fighting-game-matchmaker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "lambda-matchmaker.mjs",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.758.0",
+    "@aws-sdk/client-ec2": "^3.758.0",
+    "@aws-sdk/lib-dynamodb": "^3.758.0"
+  }
+}
